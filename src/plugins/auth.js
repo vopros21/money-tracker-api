@@ -1,4 +1,3 @@
-import fp from 'fastify-plugin'
 import sql from '../db/index.js'
 
 async function authPlugin(fastify) {
@@ -27,4 +26,4 @@ async function authPlugin(fastify) {
   })
 }
 
-export default fp(authPlugin)
+export default authPlugin

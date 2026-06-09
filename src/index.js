@@ -20,7 +20,7 @@ await fastify.register(cors, {
 })
 
 // Session auth decorator
-await fastify.register(authPlugin)
+await authPlugin(fastify)
 
 // Routes
 await fastify.register(authRoutes, { prefix: '/auth' })
