@@ -61,7 +61,7 @@ export default async function dashboardRoutes(fastify) {
         SELECT COALESCE(SUM(amount), 0) AS total
         FROM incomes
         WHERE user_id = ${userId}
-          AND received_at BETWEEN ${weekStart.toISOString().slice(0,10)}::date
+          AND received_at BETWEEN ${weekStart.toISOString().slice(0, 10)}::date
           AND ${latestDate}::date
       `
       weekIncome = parseFloat(incomeRow?.total ?? 0)
@@ -73,7 +73,7 @@ export default async function dashboardRoutes(fastify) {
     // Restricted accounts — individual named cards
     const restricted = latestSnapshots
       .filter(s => s.type === 'restricted')
-      .map(s => ({ name: s.name, balance: Math.round(parseFloat(s.balance) * 100) / 100 }))
+      .map(s => ({ name: "Benefits", balance: Math.round(parseFloat(s.balance) * 100) / 100 }))
 
     return reply.send({
       net_worth: Math.round(current.netWorth * 100) / 100,
