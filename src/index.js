@@ -96,7 +96,7 @@ fastify.get('/auth/me', { preHandler: fastify.authenticate }, async (req, reply)
 fastify.get('/api/accounts', { preHandler: fastify.authenticate }, async (req, reply) => {
   const accounts = await sql`
     SELECT id, name, type, is_active, sort_order, created_at FROM accounts
-    WHERE user_id = ${req.user.id} ORDER BY sort_order ASC, created_at ASC
+    WHERE user_id = ${req.user.id} ORDER BY name ASC
   `
   return reply.send({ accounts })
 })
@@ -104,7 +104,7 @@ fastify.get('/api/accounts', { preHandler: fastify.authenticate }, async (req, r
 fastify.post('/api/accounts', { preHandler: fastify.authenticate }, async (req, reply) => {
   const { name, type, sort_order = 0 } = req.body ?? {}
   if (!name || !type) return reply.code(400).send({ error: 'name and type required' })
-  const validTypes = ['debit', 'credit', 'debt', 'investment', 'cash']
+  const validTypes = ['debit', 'credit', 'debt', 'investment', 'cash', 'restricted']
   if (!validTypes.includes(type)) return reply.code(400).send({ error: `type must be one of: ${validTypes.join(', ')}` })
 
   const [account] = await sql`
@@ -228,12 +228,18 @@ fastify.get('/api/dashboard/summary', { preHandler: fastify.authenticate }, asyn
 
   function totals(snaps) {
     let netWorth = 0, liquid = 0
+    const restricted = []
     for (const s of snaps) {
       const b = parseFloat(s.balance)
-      netWorth += (s.type === 'credit' || s.type === 'debt') ? -b : b
-      if (s.type === 'debit' || s.type === 'cash') liquid += b
+      if (s.type === 'credit' || s.type === 'debt') {
+        netWorth -= b
+      } else {
+        netWorth += b
+        if (s.type === 'debit' || s.type === 'cash') liquid += b
+        if (s.type === 'restricted') restricted.push({ name: s.name, balance: b })
+      }
     }
-    return { netWorth, liquid }
+    return { netWorth, liquid, restricted }
   }
 
   const cur = totals(latest)
@@ -246,7 +252,7 @@ fastify.get('/api/dashboard/summary', { preHandler: fastify.authenticate }, asyn
     weekStart.setDate(weekStart.getDate() - 7)
     const [r] = await sql`
       SELECT COALESCE(SUM(amount),0) AS total FROM incomes
-      WHERE user_id=${userId} AND received_at BETWEEN ${weekStart.toISOString().slice(0,10)}::date AND ${latestDate}::date
+      WHERE user_id=${userId} AND received_at BETWEEN ${weekStart.toISOString().slice(0, 10)}::date AND ${latestDate}::date
     `
     weekIncome = parseFloat(r?.total ?? 0)
   }
@@ -258,7 +264,8 @@ fastify.get('/api/dashboard/summary', { preHandler: fastify.authenticate }, asyn
     liquid_delta: Math.round((cur.liquid - prv.liquid) * 100) / 100,
     week_income: Math.round(weekIncome * 100) / 100,
     implied_expenses: Math.round(Math.max(0, prv.liquid + weekIncome - cur.liquid) * 100) / 100,
-    last_update: latest[0]?.recorded_at ?? null
+    last_update: latest[0]?.recorded_at ?? null,
+    restricted: cur.restricted   // ← new
   })
 })
 
