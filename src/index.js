@@ -214,12 +214,12 @@ fastify.get('/api/dashboard/summary', { preHandler: fastify.authenticate }, asyn
   const userId = req.user.id
 
   const latest = await sql`
-    SELECT DISTINCT ON (s.account_id) s.account_id, s.balance, s.recorded_at, a.type
+    SELECT DISTINCT ON (s.account_id) s.account_id, s.balance, s.recorded_at, a.type, a.name
     FROM account_snapshots s JOIN accounts a ON a.id = s.account_id
     WHERE s.user_id=${userId} AND a.is_active=TRUE ORDER BY s.account_id, s.recorded_at DESC
   `
   const prev = await sql`
-    SELECT DISTINCT ON (s.account_id) s.account_id, s.balance, s.recorded_at, a.type
+    SELECT DISTINCT ON (s.account_id) s.account_id, s.balance, s.recorded_at, a.type, a.name
     FROM account_snapshots s JOIN accounts a ON a.id = s.account_id
     WHERE s.user_id=${userId} AND a.is_active=TRUE
       AND s.recorded_at < (SELECT MAX(recorded_at) FROM account_snapshots WHERE user_id=${userId})

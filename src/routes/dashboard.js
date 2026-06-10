@@ -73,7 +73,7 @@ export default async function dashboardRoutes(fastify) {
     // Restricted accounts — individual named cards
     const restricted = latestSnapshots
       .filter(s => s.type === 'restricted')
-      .map(s => ({ name: "Benefits", balance: Math.round(parseFloat(s.balance) * 100) / 100 }))
+      .map(s => ({ name: s.name, balance: Math.round(parseFloat(s.balance) * 100) / 100 }))
 
     return reply.send({
       net_worth: Math.round(current.netWorth * 100) / 100,
