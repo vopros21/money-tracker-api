@@ -10,7 +10,7 @@ export default async function dashboardRoutes(fastify) {
     // Latest snapshot per account
     const latestSnapshots = await sql`
       SELECT DISTINCT ON (s.account_id)
-        s.account_id, s.balance, s.recorded_at, a.type
+        s.account_id, s.balance, s.recorded_at, a.type, a.name
       FROM account_snapshots s
       JOIN accounts a ON a.id = s.account_id
       WHERE s.user_id = ${userId} AND a.is_active = TRUE
@@ -20,7 +20,7 @@ export default async function dashboardRoutes(fastify) {
     // Previous week snapshot per account (second most recent)
     const prevSnapshots = await sql`
       SELECT DISTINCT ON (s.account_id)
-        s.account_id, s.balance, s.recorded_at, a.type
+        s.account_id, s.balance, s.recorded_at, a.type, a.name
       FROM account_snapshots s
       JOIN accounts a ON a.id = s.account_id
       WHERE s.user_id = ${userId}
@@ -70,6 +70,11 @@ export default async function dashboardRoutes(fastify) {
     // Implied expenses = (prev liquid + income this week) - current liquid
     const impliedExpenses = Math.max(0, previous.liquid + weekIncome - current.liquid)
 
+    // Restricted accounts — individual named cards
+    const restricted = latestSnapshots
+      .filter(s => s.type === 'restricted')
+      .map(s => ({ name: s.name, balance: Math.round(parseFloat(s.balance) * 100) / 100 }))
+
     return reply.send({
       net_worth: Math.round(current.netWorth * 100) / 100,
       liquid: Math.round(current.liquid * 100) / 100,
@@ -77,7 +82,8 @@ export default async function dashboardRoutes(fastify) {
       liquid_delta: Math.round((current.liquid - previous.liquid) * 100) / 100,
       week_income: Math.round(weekIncome * 100) / 100,
       implied_expenses: Math.round(impliedExpenses * 100) / 100,
-      last_update: latestSnapshots[0]?.recorded_at ?? null
+      last_update: latestSnapshots[0]?.recorded_at ?? null,
+      restricted,
     })
   })
 }
