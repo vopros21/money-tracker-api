@@ -4,7 +4,15 @@ import sql from '../db/index.js'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 
-const ALLOWED_EMAIL = process.env.ALLOWED_EMAIL
+const ALLOWED_EMAILS = (process.env.ALLOWED_EMAIL || '')
+  .split(',')
+  .map(e => e.trim().toLowerCase())
+  .filter(Boolean)
+
+// The first email in ALLOWED_EMAIL is treated as the shared/canonical account.
+// Every allowed email logs into the SAME user_id, so everyone sees the same data.
+const CANONICAL_EMAIL = ALLOWED_EMAILS[0]
+
 const SESSION_TTL_DAYS = 30
 const MAGIC_LINK_TTL_MINUTES = 15
 
@@ -17,16 +25,18 @@ export default async function authRoutes(fastify) {
       return reply.code(400).send({ error: 'Email required' })
     }
 
-    // Only your email is allowed
-    if (email.toLowerCase().trim() !== ALLOWED_EMAIL.toLowerCase()) {
+    const requestedEmail = email.toLowerCase().trim()
+
+    // Only allowed emails
+    if (!ALLOWED_EMAILS.includes(requestedEmail)) {
       // Return 200 anyway to avoid email enumeration
       return reply.send({ ok: true })
     }
 
-    // Upsert user
+    // Everyone in ALLOWED_EMAILS shares the same underlying account/user_id
     const [user] = await sql`
       INSERT INTO users (email)
-      VALUES (${email.toLowerCase().trim()})
+      VALUES (${CANONICAL_EMAIL})
       ON CONFLICT (email) DO UPDATE SET email = EXCLUDED.email
       RETURNING id
     `
