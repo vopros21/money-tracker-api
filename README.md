@@ -2,6 +2,7 @@
 
 Backend for money.singledev.eu — personal finance tracker.
 
+
 ## Stack
 - Node.js + Fastify 5
 - Neon PostgreSQL
