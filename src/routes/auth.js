@@ -51,7 +51,7 @@ export default async function authRoutes(fastify) {
 
     const magicUrl = `${process.env.FRONTEND_URL}/auth/verify?token=${token}`
 
-    await resend.emails.send({
+    const { data, error } = await resend.emails.send({
       from: `Money Tracker <hello@singledev.eu>`,
       to: email,
       subject: 'Your sign-in link',
@@ -61,6 +61,13 @@ export default async function authRoutes(fastify) {
         <p style="color:#888;font-size:12px;">If you didn't request this, ignore this email.</p>
       `
     })
+
+    if (error) {
+      req.log.error({ error }, 'Resend send failed')
+      return reply.code(500).send({ error: 'Failed to send email' })
+    }
+
+    req.log.info({ resendId: data?.id }, 'Magic link email sent')
 
     return reply.send({ ok: true })
   })
