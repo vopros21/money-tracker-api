@@ -13,6 +13,14 @@ const ALLOWED_EMAILS = (process.env.ALLOWED_EMAIL || '')
 // Every allowed email logs into the SAME user_id, so everyone sees the same data.
 const CANONICAL_EMAIL = ALLOWED_EMAILS[0]
 
+// TEMP DEBUG: log the parsed allow-list once at boot, with raw char codes
+// so hidden whitespace/newlines are visible. Remove once the login bug is fixed.
+console.log('[DEBUG] raw ALLOWED_EMAIL env:', JSON.stringify(process.env.ALLOWED_EMAIL))
+console.log('[DEBUG] parsed ALLOWED_EMAILS:', JSON.stringify(ALLOWED_EMAILS))
+ALLOWED_EMAILS.forEach((e, i) => {
+  console.log(`[DEBUG] ALLOWED_EMAILS[${i}] char codes:`, Array.from(e).map(c => c.charCodeAt(0)))
+})
+
 const SESSION_TTL_DAYS = 30
 const MAGIC_LINK_TTL_MINUTES = 15
 
@@ -26,6 +34,16 @@ export default async function authRoutes(fastify) {
     }
 
     const requestedEmail = email.toLowerCase().trim()
+
+    // TEMP DEBUG: log exactly what we received and compared against.
+    // Remove once the login bug is fixed.
+    req.log.info({
+      rawEmail: email,
+      requestedEmail,
+      requestedEmailCharCodes: Array.from(requestedEmail).map(c => c.charCodeAt(0)),
+      allowedEmails: ALLOWED_EMAILS,
+      isMatch: ALLOWED_EMAILS.includes(requestedEmail)
+    }, 'DEBUG auth/request email comparison')
 
     // Only allowed emails
     if (!ALLOWED_EMAILS.includes(requestedEmail)) {
