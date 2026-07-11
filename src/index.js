@@ -7,7 +7,14 @@ import { neon } from '@neondatabase/serverless'
 const sql = neon(process.env.DATABASE_URL)
 const resend = new Resend(process.env.RESEND_API_KEY)
 
-const ALLOWED_EMAIL = process.env.ALLOWED_EMAIL
+const ALLOWED_EMAILS = (process.env.ALLOWED_EMAIL || '')
+  .split(',')
+  .map(e => e.trim().toLowerCase())
+  .filter(Boolean)
+
+// Everyone in ALLOWED_EMAILS shares the same underlying account/user_id.
+// The first email in the list is treated as the canonical account email.
+const CANONICAL_EMAIL = ALLOWED_EMAILS[0]
 const FRONTEND_URL = process.env.FRONTEND_URL
 const SESSION_TTL_DAYS = 30
 const MAGIC_LINK_TTL_MINUTES = 15
@@ -43,10 +50,11 @@ fastify.get('/health', async () => ({ ok: true, ts: new Date().toISOString() }))
 fastify.post('/auth/request', async (req, reply) => {
   const { email } = req.body ?? {}
   if (!email) return reply.code(400).send({ error: 'Email required' })
-  if (email.toLowerCase().trim() !== ALLOWED_EMAIL.toLowerCase()) return reply.send({ ok: true })
+  const requestedEmail = email.toLowerCase().trim()
+  if (!ALLOWED_EMAILS.includes(requestedEmail)) return reply.send({ ok: true })
 
   const [user] = await sql`
-    INSERT INTO users (email) VALUES (${email.toLowerCase().trim()})
+    INSERT INTO users (email) VALUES (${CANONICAL_EMAIL})
     ON CONFLICT (email) DO UPDATE SET email = EXCLUDED.email
     RETURNING id
   `
@@ -55,12 +63,17 @@ fastify.post('/auth/request', async (req, reply) => {
   await sql`INSERT INTO magic_links (user_id, token, expires_at) VALUES (${user.id}, ${token}, ${expiresAt})`
 
   const magicUrl = `${FRONTEND_URL}/auth/verify?token=${token}`
-  await resend.emails.send({
+  const { data, error } = await resend.emails.send({
     from: 'Money Tracker <hello@singledev.eu>',
     to: email,
     subject: 'Your sign-in link',
     html: `<p>Sign in link (expires in ${MAGIC_LINK_TTL_MINUTES} min):</p><p><a href="${magicUrl}">${magicUrl}</a></p>`
   })
+  if (error) {
+    req.log.error({ error }, 'Resend send failed')
+    return reply.code(500).send({ error: 'Failed to send email' })
+  }
+  req.log.info({ resendId: data?.id }, 'Magic link email sent')
   return reply.send({ ok: true })
 })
 
