@@ -240,19 +240,21 @@ fastify.get('/api/dashboard/summary', { preHandler: fastify.authenticate }, asyn
   `
 
   function totals(snaps) {
-    let netWorth = 0, liquid = 0
+    let netWorth = 0, liquid = 0, debt = 0, invest = 0
     const restricted = []
     for (const s of snaps) {
       const b = parseFloat(s.balance)
       if (s.type === 'credit' || s.type === 'debt') {
         netWorth -= b
+        debt += b
       } else {
         netWorth += b
         if (s.type === 'debit' || s.type === 'cash') liquid += b
+        if (s.type === 'investment') invest += b
         if (s.type === 'restricted') restricted.push({ name: s.name, balance: b })
       }
     }
-    return { netWorth, liquid, restricted }
+    return { netWorth, liquid, debt, invest, restricted }
   }
 
   const cur = totals(latest)
@@ -273,8 +275,12 @@ fastify.get('/api/dashboard/summary', { preHandler: fastify.authenticate }, asyn
   return reply.send({
     net_worth: Math.round(cur.netWorth * 100) / 100,
     liquid: Math.round(cur.liquid * 100) / 100,
+    debt: Math.round(cur.debt * 100) / 100,
+    investments: Math.round(cur.invest * 100) / 100,
     net_worth_delta: Math.round((cur.netWorth - prv.netWorth) * 100) / 100,
     liquid_delta: Math.round((cur.liquid - prv.liquid) * 100) / 100,
+    debt_delta: Math.round((cur.debt - prv.debt) * 100) / 100,
+    investments_delta: Math.round((cur.invest - prv.invest) * 100) / 100,
     week_income: Math.round(weekIncome * 100) / 100,
     implied_expenses: Math.round(Math.max(0, prv.liquid + weekIncome - cur.liquid) * 100) / 100,
     last_update: latest[0]?.recorded_at ?? null,
