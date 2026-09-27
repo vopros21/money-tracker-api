@@ -176,22 +176,39 @@ fastify.post('/api/snapshots', { preHandler: fastify.authenticate }, async (req,
 
 fastify.get('/api/snapshots/history', { preHandler: fastify.authenticate }, async (req, reply) => {
   const { from, to } = req.query
-  if (!from || !to) return reply.code(400).send({ error: 'from and to required' })
-  const snapshots = await sql`
-    SELECT s.recorded_at, s.account_id, s.balance, a.name, a.type
-    FROM account_snapshots s JOIN accounts a ON a.id = s.account_id
-    WHERE s.user_id = ${req.user.id} AND s.recorded_at BETWEEN ${from}::date AND ${to}::date
-    ORDER BY s.recorded_at ASC, a.sort_order ASC
-  `
+  // `to` is still required; `from` is optional so the "All" period tab can
+  // request full history. An empty string (from=) is treated as absent.
+  if (!to) return reply.code(400).send({ error: 'to required' })
+  const snapshots = from
+    ? await sql`
+        SELECT s.recorded_at, s.account_id, s.balance, a.name, a.type
+        FROM account_snapshots s JOIN accounts a ON a.id = s.account_id
+        WHERE s.user_id = ${req.user.id} AND s.recorded_at BETWEEN ${from}::date AND ${to}::date
+        ORDER BY s.recorded_at ASC, a.sort_order ASC
+      `
+    : await sql`
+        SELECT s.recorded_at, s.account_id, s.balance, a.name, a.type
+        FROM account_snapshots s JOIN accounts a ON a.id = s.account_id
+        WHERE s.user_id = ${req.user.id} AND s.recorded_at <= ${to}::date
+        ORDER BY s.recorded_at ASC, a.sort_order ASC
+      `
   return reply.send({ snapshots })
 })
 
 // ── INCOMES ───────────────────────────────────────────────
 fastify.get('/api/incomes', { preHandler: fastify.authenticate }, async (req, reply) => {
   const { from, to, limit = 50 } = req.query
-  const incomes = from && to
-    ? await sql`SELECT id, amount, source, note, received_at FROM incomes WHERE user_id=${req.user.id} AND received_at BETWEEN ${from}::date AND ${to}::date ORDER BY received_at DESC LIMIT ${parseInt(limit)}`
-    : await sql`SELECT id, amount, source, note, received_at FROM incomes WHERE user_id=${req.user.id} ORDER BY received_at DESC LIMIT ${parseInt(limit)}`
+  // `from` optional (empty string treated as absent) so the "All" period can
+  // pull full history; still bound by `to` when provided.
+  const lim = parseInt(limit)
+  let incomes
+  if (from && to) {
+    incomes = await sql`SELECT id, amount, source, note, received_at FROM incomes WHERE user_id=${req.user.id} AND received_at BETWEEN ${from}::date AND ${to}::date ORDER BY received_at DESC LIMIT ${lim}`
+  } else if (to) {
+    incomes = await sql`SELECT id, amount, source, note, received_at FROM incomes WHERE user_id=${req.user.id} AND received_at <= ${to}::date ORDER BY received_at DESC LIMIT ${lim}`
+  } else {
+    incomes = await sql`SELECT id, amount, source, note, received_at FROM incomes WHERE user_id=${req.user.id} ORDER BY received_at DESC LIMIT ${lim}`
+  }
   return reply.send({ incomes })
 })
 
