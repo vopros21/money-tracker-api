@@ -1,0 +1,16 @@
+# /etc/systemd/system/notify-failure@.service (prazo-pi)
+# System-scope twin of mike's user template ~/.config/systemd/user/notify-failure@.service
+# (used by the mail backup). System units can't trigger user units with OnFailure=,
+# so this runs the SAME script, ~/bin/notify-unit-failure, as mike: "❌ <unit> failed"
+# + last 15 journal lines to Telegram, at most once per unit per 6 h.
+# NOTIFY_JOURNAL=system makes the script read the system journal (mike is in adm).
+[Unit]
+Description=Telegram failure alert for %i (system unit)
+
+[Service]
+Type=oneshot
+User=mike
+UMask=0077
+Environment=PATH=/home/mike/bin:/usr/local/bin:/usr/bin:/bin
+Environment=NOTIFY_JOURNAL=system
+ExecStart=/home/mike/bin/notify-unit-failure %i
