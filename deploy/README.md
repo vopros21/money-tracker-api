@@ -79,31 +79,39 @@ Data changes once a week (Saturday morning), so backups run on weekends.
 
 ## Restore
 
-Dumps are custom format (`pg_dump -Fc` from the PostgreSQL 18 client, since PGDG's
-`postgresql-client-18` is installed), so restore them **on the Pi** with
-`pg_restore` (the Mac's `pg_restore` 16 can't read them).
+Dumps are custom format (`pg_dump -Fc`, PostgreSQL 17 on the Pi). Restore them
+**on the Pi** with `pg_restore` (the Mac's `pg_restore` 16 can't read them).
 
-**Test a dump without touching the live DB:**
+**Test a dump without touching the live DB** (done 2026-11-22 with the Mac's copy of
+`money_tracker-2026-11-22T1202.dump`: same sha256 as on the Pi, all row counts and the
+net worth identical to `money_tracker`):
 ```bash
-D=$(ls -1 /var/backups/money-tracker/money_tracker-*.dump | tail -1)
+D=$(ls -1 /var/backups/money-tracker/money_tracker-*.dump | tail -1)   # newest
 sudo -u postgres createdb money_restore_test
-sudo -u postgres pg_restore --no-owner --no-acl -d money_restore_test "$D"
-sudo -u postgres psql -d money_restore_test -c "select count(*) from account_snapshots"
+sudo -u postgres pg_restore --no-owner --no-acl --exit-on-error -d money_restore_test "$D"
+for t in users accounts account_snapshots incomes; do
+  echo "$t $(sudo -u postgres psql -XAt -d money_restore_test -c "select count(*) from $t") \
+     live: $(sudo -u postgres psql -XAt -d money_tracker -c "select count(*) from $t")"
+done
 sudo -u postgres dropdb money_restore_test
 ```
 
 **Replace the live DB with a dump:**
 ```bash
+sudo systemctl start money-tracker-backup.service   # safety dump of the current state first
 sudo systemctl stop money-tracker
 sudo -u postgres dropdb money_tracker
 sudo -u postgres createdb -O money money_tracker
-sudo -u postgres pg_restore --no-owner --no-acl --role=money -d money_tracker /var/backups/money-tracker/money_tracker-<date>.dump
+sudo -u postgres pg_restore --no-owner --no-acl --role=money --exit-on-error \
+  -d money_tracker /var/backups/money-tracker/money_tracker-<date>.dump
 sudo systemctl start money-tracker
 curl -s http://prazo-pi.local:3010/api/dashboard/summary
 ```
 
-**Dump only on the Mac or in R2?** Copy it to the Pi first:
-`scp ~/Backups/money-db/money_tracker-<date>.dump prazo-pi:/tmp/` (then use `/tmp/...`
-above, readable by postgres), or on the Pi:
-`~/bin/restic-mail restore latest --tag money-tracker --target /tmp/money-restore`
-(files land under `/tmp/money-restore/var/backups/money-tracker/`).
+**Dump only on the Mac or only in R2?** Get it onto the Pi first, then use the
+commands above with its path:
+- From the Mac: `scp ~/Backups/money-db/money_tracker-<date>.dump prazo-pi:/tmp/`
+  (then `chmod 644 /tmp/money_tracker-<date>.dump` so postgres can read it).
+- From R2, on the Pi: `~/bin/restic-mail snapshots --tag money-tracker`, then
+  `~/bin/restic-mail restore <id|latest> --tag money-tracker --target /tmp/money-restore`
+  (files land under `/tmp/money-restore/var/backups/money-tracker/`).
