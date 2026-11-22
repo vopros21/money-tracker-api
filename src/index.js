@@ -1,109 +1,27 @@
 import Fastify from 'fastify'
-import cors from '@fastify/cors'
-import { nanoid } from 'nanoid'
-import { Resend } from 'resend'
-import { neon } from '@neondatabase/serverless'
-
-const sql = neon(process.env.DATABASE_URL)
-const resend = new Resend(process.env.RESEND_API_KEY)
-
-const ALLOWED_EMAILS = (process.env.ALLOWED_EMAIL || '')
-  .split(',')
-  .map(e => e.trim().toLowerCase())
-  .filter(Boolean)
-
-// Everyone in ALLOWED_EMAILS shares the same underlying account/user_id.
-// The first email in the list is treated as the canonical account email.
-const CANONICAL_EMAIL = ALLOWED_EMAILS[0]
-const FRONTEND_URL = process.env.FRONTEND_URL
-const SESSION_TTL_DAYS = 30
-const MAGIC_LINK_TTL_MINUTES = 15
+import fastifyStatic from '@fastify/static'
+import path from 'node:path'
+import sql from './db/index.js'
 
 const fastify = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' } })
 
-await fastify.register(cors, {
-  origin: process.env.ALLOWED_ORIGIN ?? '*',
-  credentials: true
-})
+// No login: the app runs on the home LAN only. Every request acts as the
+// single existing user (the one the data was created under).
+let ownerId = null
+async function resolveOwner() {
+  if (ownerId) return ownerId
+  const [u] = await sql`SELECT id FROM users ORDER BY id LIMIT 1`
+  if (u) return (ownerId = u.id)
+  const [created] = await sql`INSERT INTO users (email) VALUES ('owner@local') RETURNING id`
+  return (ownerId = created.id)
+}
 
-// Auth middleware
-fastify.decorate('authenticate', async function (req, reply) {
-  const authHeader = req.headers['authorization'] ?? ''
-  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
-  if (!token) return reply.code(401).send({ error: 'Unauthorized' })
-
-  const [session] = await sql`
-    SELECT s.user_id, s.token, u.email
-    FROM sessions s JOIN users u ON u.id = s.user_id
-    WHERE s.token = ${token} AND s.expires_at > NOW()
-  `
-  if (!session) return reply.code(401).send({ error: 'Session expired or invalid' })
-
-  req.user = { id: session.user_id, email: session.email }
-  req.sessionToken = session.token
+fastify.decorate('authenticate', async function (req) {
+  req.user = { id: await resolveOwner() }
 })
 
 // ── HEALTH ──────────────────────────────────────────────
 fastify.get('/health', async () => ({ ok: true, ts: new Date().toISOString() }))
-
-// ── AUTH ─────────────────────────────────────────────────
-fastify.post('/auth/request', async (req, reply) => {
-  const { email } = req.body ?? {}
-  if (!email) return reply.code(400).send({ error: 'Email required' })
-  const requestedEmail = email.toLowerCase().trim()
-  if (!ALLOWED_EMAILS.includes(requestedEmail)) return reply.send({ ok: true })
-
-  const [user] = await sql`
-    INSERT INTO users (email) VALUES (${CANONICAL_EMAIL})
-    ON CONFLICT (email) DO UPDATE SET email = EXCLUDED.email
-    RETURNING id
-  `
-  const token = nanoid(48)
-  const expiresAt = new Date(Date.now() + MAGIC_LINK_TTL_MINUTES * 60 * 1000)
-  await sql`INSERT INTO magic_links (user_id, token, expires_at) VALUES (${user.id}, ${token}, ${expiresAt})`
-
-  const magicUrl = `${FRONTEND_URL}/auth/verify?token=${token}`
-  const { data, error } = await resend.emails.send({
-    from: 'Money Tracker <hello@singledev.eu>',
-    to: email,
-    subject: 'Your sign-in link',
-    html: `<p>Sign in link (expires in ${MAGIC_LINK_TTL_MINUTES} min):</p><p><a href="${magicUrl}">${magicUrl}</a></p>`
-  })
-  if (error) {
-    req.log.error({ error }, 'Resend send failed')
-    return reply.code(500).send({ error: 'Failed to send email' })
-  }
-  req.log.info({ resendId: data?.id }, 'Magic link email sent')
-  return reply.send({ ok: true })
-})
-
-fastify.post('/auth/verify', async (req, reply) => {
-  const { token } = req.body ?? {}
-  if (!token) return reply.code(400).send({ error: 'Token required' })
-
-  const [link] = await sql`
-    SELECT ml.*, u.email FROM magic_links ml JOIN users u ON u.id = ml.user_id
-    WHERE ml.token = ${token} AND ml.used_at IS NULL AND ml.expires_at > NOW()
-  `
-  if (!link) return reply.code(401).send({ error: 'Invalid or expired link' })
-
-  await sql`UPDATE magic_links SET used_at = NOW() WHERE id = ${link.id}`
-
-  const sessionToken = nanoid(64)
-  const sessionExpiry = new Date(Date.now() + SESSION_TTL_DAYS * 24 * 60 * 60 * 1000)
-  await sql`INSERT INTO sessions (user_id, token, expires_at) VALUES (${link.user_id}, ${sessionToken}, ${sessionExpiry})`
-
-  return reply.send({ session_token: sessionToken, expires_at: sessionExpiry, email: link.email })
-})
-
-fastify.post('/auth/logout', { preHandler: fastify.authenticate }, async (req, reply) => {
-  await sql`DELETE FROM sessions WHERE token = ${req.sessionToken}`
-  return reply.send({ ok: true })
-})
-
-fastify.get('/auth/me', { preHandler: fastify.authenticate }, async (req, reply) => {
-  return reply.send({ user: req.user })
-})
 
 // ── ACCOUNTS ──────────────────────────────────────────────
 fastify.get('/api/accounts', { preHandler: fastify.authenticate }, async (req, reply) => {
@@ -301,9 +219,25 @@ fastify.get('/api/dashboard/summary', { preHandler: fastify.authenticate }, asyn
     week_income: Math.round(weekIncome * 100) / 100,
     implied_expenses: Math.round(Math.max(0, prv.liquid + weekIncome - cur.liquid) * 100) / 100,
     last_update: latest[0]?.recorded_at ?? null,
-    restricted: cur.restricted   // ← new
+    restricted: cur.restricted
   })
 })
+
+// ── FRONTEND (optional) ───────────────────────────────────
+// When STATIC_DIR points at the frontend's dist/, serve the SPA from the same
+// origin so the whole app runs as one service on the home network.
+if (process.env.STATIC_DIR) {
+  await fastify.register(fastifyStatic, { root: path.resolve(process.env.STATIC_DIR) })
+  // SPA fallback: client-side routes (/dashboard, /income…) get index.html.
+  // API paths and missing files with an extension (/assets/x.js) stay 404.
+  fastify.setNotFoundHandler((req, reply) => {
+    const pathname = req.url.split('?')[0]
+    const isPage = (req.method === 'GET' || req.method === 'HEAD') &&
+      !pathname.startsWith('/api/') && !path.extname(pathname)
+    if (isPage) return reply.sendFile('index.html')
+    return reply.code(404).send({ error: 'Not found' })
+  })
+}
 
 // ── START ─────────────────────────────────────────────────
 try {

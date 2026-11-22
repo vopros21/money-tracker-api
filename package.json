@@ -8,12 +8,8 @@
     "dev": "node --watch src/index.js"
   },
   "dependencies": {
-    "@fastify/cors": "^10.0.2",
-    "@neondatabase/serverless": "^0.10.4",
+    "@fastify/static": "^10.1.12",
     "fastify": "^5.2.1",
-    "fastify-plugin": "^6.0.0",
-    "nanoid": "^5.0.9",
-    "fastify-plugin": "^5.0.1",
-    "resend": "^4.1.2"
+    "pg": "^8.13.1"
   }
 }

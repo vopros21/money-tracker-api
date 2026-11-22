@@ -1,4 +1,7 @@
--- Run this in Neon SQL Editor to set up the database
+-- money_tracker schema (PostgreSQL). Matches the live database on prazo-pi.
+-- Fresh install: psql postgresql://money:...@localhost/money_tracker -f schema.sql
+-- There is no login: the API acts as the single row in `users` (it creates
+-- one if the table is empty).
 
 CREATE TABLE IF NOT EXISTS users (
   id SERIAL PRIMARY KEY,
@@ -6,28 +9,11 @@ CREATE TABLE IF NOT EXISTS users (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS magic_links (
-  id SERIAL PRIMARY KEY,
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  token TEXT NOT NULL UNIQUE,
-  expires_at TIMESTAMPTZ NOT NULL,
-  used_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS sessions (
-  id SERIAL PRIMARY KEY,
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  token TEXT NOT NULL UNIQUE,
-  expires_at TIMESTAMPTZ NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
 CREATE TABLE IF NOT EXISTS accounts (
   id SERIAL PRIMARY KEY,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
-  type TEXT NOT NULL CHECK (type IN ('debit', 'credit', 'debt', 'investment', 'cash')),
+  type TEXT NOT NULL CHECK (type IN ('debit', 'credit', 'debt', 'investment', 'cash', 'restricted')),
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
   sort_order INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -57,7 +43,5 @@ CREATE TABLE IF NOT EXISTS incomes (
 );
 
 -- Indexes
-CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token);
-CREATE INDEX IF NOT EXISTS idx_magic_links_token ON magic_links(token);
 CREATE INDEX IF NOT EXISTS idx_snapshots_user_date ON account_snapshots(user_id, recorded_at DESC);
 CREATE INDEX IF NOT EXISTS idx_incomes_user_date ON incomes(user_id, received_at DESC);

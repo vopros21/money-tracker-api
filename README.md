@@ -1,70 +1,49 @@
 # money-tracker-api
 
-Backend for money.singledev.eu — personal finance tracker.
+Backend of the personal money tracker (Node.js + Fastify 5 + PostgreSQL).
+It runs on the Raspberry Pi **prazo-pi** on the home network and also serves the
+built frontend, so the whole app is one service at **http://prazo-pi.local:3010**.
 
+- **No login, LAN only, on purpose.** Anyone on the home Wi-Fi can use it; nothing
+  is port-forwarded or tunnelled. Every request acts as the single row in `users`.
+- **Safety guard:** the API refuses to start unless `DATABASE_URL` points at
+  localhost (override: `ALLOW_REMOTE_DATABASE=1`). An unauthenticated build must
+  never be deployed against a remote database by accident.
+- Server timezone is UTC (`TZ=UTC` in the systemd unit): `DATE` columns become JS
+  Dates at local midnight, so another zone would shift dates by a day.
 
-## Stack
-- Node.js + Fastify 5
-- Neon PostgreSQL
-- Resend (magic link auth)
-- Hosted on Render
+## Setup, deploy, backups, restore
 
-## Setup
+See [deploy/README.md](deploy/README.md).
 
-### 1. Create Neon database
-
-1. Go to [neon.tech](https://neon.tech) → New project
-2. Name it `money-tracker`, region `EU Central (Frankfurt)`
-3. Go to **SQL Editor** → paste and run the contents of `schema.sql`
-4. Go to **Connection Details** → copy the **Connection string**
-
-### 2. Configure Resend
-
-Use your existing Resend account (already set up for singledev.eu).
-Create a new API key (or reuse the parking service one).
-
-### 3. Local development
+## Local development
 
 ```bash
-cp .env.example .env
-# Fill in DATABASE_URL, RESEND_API_KEY, ALLOWED_EMAIL
-npm install
-npm run dev
+cp .env.example .env          # DATABASE_URL to a local Postgres
+psql "$DATABASE_URL" -f schema.sql
+npm ci
+node --env-file=.env --watch src/index.js     # http://localhost:3000
 ```
 
-Server runs on http://localhost:3000
+Run the frontend with `npm run dev` in `money-tracker-frontend`: Vite proxies
+`/api` to port 3000. Or build it and set `STATIC_DIR=../money-tracker-frontend/dist`.
 
-### 4. Deploy to Render
-
-1. Push repo to GitHub as `money-tracker-api`
-2. Render → New Web Service → connect repo
-3. Settings:
-   - **Runtime**: Node
-   - **Build command**: `npm install`
-   - **Start command**: `node src/index.js`
-   - **Region**: Frankfurt (EU)
-4. Environment variables (add all from `.env.example`):
-   - `DATABASE_URL` — from Neon
-   - `RESEND_API_KEY` — from Resend
-   - `ALLOWED_EMAIL` — your email
-   - `FRONTEND_URL` — `https://money.singledev.eu`
-   - `ALLOWED_ORIGIN` — `https://money.singledev.eu`
+| Variable | Meaning |
+|----------|---------|
+| `DATABASE_URL` | Local Postgres connection string (required) |
+| `PORT` | Listen port (default 3000; 3010 on prazo-pi) |
+| `STATIC_DIR` | Frontend `dist/` to serve, with SPA fallback (optional) |
+| `LOG_LEVEL` | Fastify log level (default `info`) |
 
 ## API Reference
 
-### Auth (no token required)
-| Method | Path | Body | Description |
-|--------|------|------|-------------|
-| POST | `/auth/request` | `{ email }` | Send magic link |
-| POST | `/auth/verify` | `{ token }` | Exchange token → session |
-| POST | `/auth/logout` | — | Invalidate session |
-| GET | `/auth/me` | — | Current user |
+`GET /health` → `{ ok: true, ts }`. No endpoint needs a token.
 
-### Accounts (Bearer token required)
+### Accounts
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/accounts` | List all accounts |
-| POST | `/api/accounts` | Create account `{ name, type }` |
+| POST | `/api/accounts` | Create account `{ name, type }`; type: debit, credit, debt, investment, cash, restricted |
 | PATCH | `/api/accounts/:id` | Update name / archive |
 
 ### Snapshots (weekly balance updates)
@@ -95,3 +74,8 @@ implied_expenses = max(0, prev_liquid + week_income - current_liquid)
 
 Income is recorded separately and subtracted from the liquid delta, so
 salary arriving this week doesn't hide your actual spending.
+
+## History
+
+Until November 2026 this ran on Render with a Neon database and a magic-link login
+(Resend), and the frontend on GitHub Pages (money.singledev.eu).

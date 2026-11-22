@@ -1,0 +1,22 @@
+[Unit]
+Description=Money Tracker (API + frontend, LAN only)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+User=money
+WorkingDirectory=/opt/money-tracker/api
+EnvironmentFile=/etc/money-tracker.env
+# Keep UTC, as on Render: DATE columns become JS Dates at local midnight,
+# so a non-UTC zone would shift dates by a day in summer.
+Environment=TZ=UTC NODE_ENV=production
+ExecStart=/usr/bin/node src/index.js
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
