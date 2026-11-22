@@ -77,6 +77,27 @@ Data changes once a week (Saturday morning), so backups run on weekends.
 4. **Monitoring (Mac):** toolhealth check `money-db-backup`: newest
    `~/Backups/money-db/money_tracker-*.dump` must be ≥ 1 KB and < 8 days old.
 
+## Failure alerts (Telegram)
+
+`money-tracker.service` and `money-tracker-backup.service` reuse the mail backup's
+alerting (mike's `~/bin/notify-unit-failure` / `notify-unit-ok`, bot token in
+`~/.config/notify/telegram.env`): "❌ <unit> failed" + last 15 log lines, at most once
+per unit per 6 h, and "✅ <unit> recovered" after the next successful start/run.
+System units can't trigger mike's user template, so `notify/notify-failure@.service`
+is a system twin that runs the same script as mike (`NOTIFY_JOURNAL=system`).
+```bash
+cd /opt/money-tracker/api/deploy/notify
+sudo install -m 644 notify-failure@.service /etc/systemd/system/
+for u in money-tracker money-tracker-backup; do
+  sudo install -D -m 644 $u.service.d/notify.conf /etc/systemd/system/$u.service.d/notify.conf
+done
+sudo systemctl daemon-reload
+```
+The app unit only becomes active once `/health` answers. A crash loop ends in
+`failed` after 5 starts in 10 min (`sudo systemctl reset-failed money-tracker` then
+`start` once fixed). Tested 2026-11-22 for both units: a simulated failure sent ❌,
+and the restore sent ✅.
+
 ## Restore
 
 Dumps are custom format (`pg_dump -Fc`, PostgreSQL 17 on the Pi). Restore them
