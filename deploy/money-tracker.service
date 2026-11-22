@@ -16,8 +16,9 @@ EnvironmentFile=/etc/money-tracker.env
 Environment=TZ=UTC NODE_ENV=production
 ExecStart=/usr/bin/node src/index.js
 # Readiness: the unit is "active" only once /health answers (else the start fails
-# and Restart= applies). $$ = a literal $ for the shell.
-ExecStartPost=/bin/sh -c 'for i in $$(seq 30); do curl -fsS -o /dev/null "http://127.0.0.1:$${PORT:-3000}/health" && exit 0; sleep 1; done; echo "money-tracker: /health not OK after 30s" >&2; exit 1'
+# and Restart= applies); gives up at once if node already exited.
+# $$ = a literal $ for the shell.
+ExecStartPost=/bin/sh -c 'for i in $$(seq 30); do kill -0 "$$MAINPID" 2>/dev/null || { echo "money-tracker: node exited during startup" >&2; exit 1; }; curl -fsS -o /dev/null "http://127.0.0.1:$${PORT:-3000}/health" 2>/dev/null && exit 0; sleep 1; done; echo "money-tracker: /health not OK after 30s" >&2; exit 1'
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true
